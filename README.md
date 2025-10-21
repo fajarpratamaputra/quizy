@@ -1,11 +1,11 @@
 # quizy
 
-Quizy exposes quiz questions stored in PostgreSQL via a JSON API. The core logic lives in a reusable package so it can run locally or as a Vercel Serverless Function.
+Quizy exposes quiz questions stored in PostgreSQL via a JSON API. The reusable service lives under `pkg/quiz`, so the code can run locally (`go run .`) or as a Vercel serverless function.
 
 ## Project Layout
 - `main.go` / `cmd/server` - local HTTP server entrypoints
-- `api/quiz.go` - Vercel entrypoint (`Handler` function)
-- `internal/quiz` - shared service (DB access, pagination, response shaping)
+- `api/quiz.go` - Vercel entrypoint (`package handler` with exported `Handler`)
+- `pkg/quiz` - shared service (DB access, pagination, response shaping)
 
 ## Requirements
 - Go 1.17+

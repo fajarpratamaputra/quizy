@@ -7,7 +7,7 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"quizy/internal/quiz"
+	"quizy/pkg/quiz"
 )
 
 func main() {

@@ -1,11 +1,11 @@
-package main
+package handler
 
 import (
 	"log"
 	"net/http"
 	"sync"
 
-	"quizy/internal/quiz"
+	"quizy/pkg/quiz"
 )
 
 var (
