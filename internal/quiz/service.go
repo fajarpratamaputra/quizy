@@ -1,98 +1,70 @@
-package main
+package quiz
 
 import (
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
 
-	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
 
-type QuizItem struct {
-	Question string   `json:"question"`
-	Answers  []string `json:"answers"`
-	Correct  string   `json:"correct"`
+// Service bundles dependencies required to serve quiz data.
+type Service struct {
+	db *sql.DB
 }
 
-type Meta struct {
-	Page       int `json:"page"`
-	Limit      int `json:"limit"`
-	TotalPages int `json:"total_pages"`
-}
-
-type QuizResponse struct {
-	Data []QuizItem `json:"data"`
-	Meta Meta       `json:"meta"`
-}
-
-func mustGetEnv(key string) string {
-	v := os.Getenv(key)
-	if v == "" {
-		log.Fatalf("missing required env: %s", key)
+// NewService opens a PostgreSQL connection and performs a health check.
+func NewService(dsn string) (*Service, error) {
+	if dsn == "" {
+		return nil, errors.New("empty DSN")
 	}
-	return v
-}
-
-func main() {
-	_ = godotenv.Load()
-	// ENV:
-	//   DB_DSN="postgres://user:pass@localhost:5432/yourdb?sslmode=disable"
-	dsn := mustGetEnv("DB_DSN")
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("open db: %w", err)
 	}
-	defer db.Close()
 
-	// Connection pool settings (aman untuk prod kecil)
+	// Connection pool defaults suitable for small workloads.
 	db.SetMaxOpenConns(10)
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
-	// Health check on start
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+
 	if err := db.PingContext(ctx); err != nil {
-		log.Fatalf("db ping failed: %v", err)
+		db.Close()
+		return nil, fmt.Errorf("ping db: %w", err)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/quiz", func(w http.ResponseWriter, r *http.Request) {
-		handleQuiz(w, r, db)
-	})
+	return &Service{db: db}, nil
+}
 
-	addr := ":8080"
-	log.Printf("listening on %s", addr)
-	if err := http.ListenAndServe(addr, withJSON(mux)); err != nil {
-		log.Fatal(err)
+// Close releases database resources.
+func (s *Service) Close() error {
+	if s == nil || s.db == nil {
+		return nil
 	}
+	return s.db.Close()
 }
 
-// Middleware sederhana untuk set JSON header & basic logging
-func withJSON(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		next.ServeHTTP(w, r)
-		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
-	})
-}
+// ServeHTTP satisfies http.Handler and returns paginated quiz data.
+func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
-func handleQuiz(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	if r.Method != http.MethodGet {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Query params
 	limit, page, err := parsePagination(r)
 	if err != nil {
 		http.Error(w, `{"error":"invalid pagination"}`, http.StatusBadRequest)
@@ -100,23 +72,24 @@ func handleQuiz(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	}
 	offset := (page - 1) * limit
 
-	// Total rows
-	var total int
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM questions`).Scan(&total); err != nil {
+
+	var total int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM questions`).Scan(&total); err != nil {
 		http.Error(w, `{"error":"failed to count rows"}`, http.StatusInternalServerError)
+		log.Printf("count rows: %v", err)
 		return
 	}
 
-	// Query page
-	rows, err := db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT question, answer_a, answer_b, answer_c, correct
 		FROM questions
 		ORDER BY id ASC
 		LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		http.Error(w, `{"error":"failed to query data"}`, http.StatusInternalServerError)
+		log.Printf("query data: %v", err)
 		return
 	}
 	defer rows.Close()
@@ -127,6 +100,7 @@ func handleQuiz(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 		var a, b, c, correct sql.NullString
 		if err := rows.Scan(&q, &a, &b, &c, &correct); err != nil {
 			http.Error(w, `{"error":"failed to scan row"}`, http.StatusInternalServerError)
+			log.Printf("scan row: %v", err)
 			return
 		}
 		item := QuizItem{
@@ -142,6 +116,7 @@ func handleQuiz(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	}
 	if err := rows.Err(); err != nil {
 		http.Error(w, `{"error":"rows error"}`, http.StatusInternalServerError)
+		log.Printf("rows iterate: %v", err)
 		return
 	}
 
@@ -160,12 +135,34 @@ func handleQuiz(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(resp); err != nil {
 		http.Error(w, `{"error":"encode error"}`, http.StatusInternalServerError)
+		log.Printf("encode response: %v", err)
 		return
 	}
+
+	log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
+}
+
+// QuizItem mirrors the response payload.
+type QuizItem struct {
+	Question string   `json:"question"`
+	Answers  []string `json:"answers"`
+	Correct  string   `json:"correct"`
+}
+
+// Meta carries pagination metadata.
+type Meta struct {
+	Page       int `json:"page"`
+	Limit      int `json:"limit"`
+	TotalPages int `json:"total_pages"`
+}
+
+// QuizResponse combines data and metadata.
+type QuizResponse struct {
+	Data []QuizItem `json:"data"`
+	Meta Meta       `json:"meta"`
 }
 
 func parsePagination(r *http.Request) (limit, page int, err error) {
-	// Default
 	limit = 10
 	page = 1
 
@@ -182,7 +179,6 @@ func parsePagination(r *http.Request) (limit, page int, err error) {
 		}
 	}
 
-	// Guardrail
 	if limit > 100 {
 		limit = 100
 	}
@@ -206,4 +202,13 @@ func nullToString(ns sql.NullString) string {
 		return ns.String
 	}
 	return ""
+}
+
+// DSNFromEnv fetches the database DSN or returns an error.
+func DSNFromEnv() (string, error) {
+	dsn := os.Getenv("DB_DSN")
+	if dsn == "" {
+		return "", errors.New("missing DB_DSN environment variable")
+	}
+	return dsn, nil
 }

@@ -1,20 +1,29 @@
 # quizy
 
-Quizy is a small Go service that exposes quiz questions stored in PostgreSQL via a JSON API. It uses the Go standard library and `github.com/lib/pq`.
+Quizy exposes quiz questions stored in PostgreSQL via a JSON API. The core logic lives in a reusable package so it can run locally or as a Vercel Serverless Function.
 
-## Features
-- JSON HTTP endpoint with pagination metadata
-- Configurable via the `DB_DSN` environment variable
-- Sensible PostgreSQL connection pooling defaults
+## Project Layout
+- `main.go` / `cmd/server` - local HTTP server entrypoints
+- `api/quiz.go` - Vercel entrypoint (`Handler` function)
+- `internal/quiz` - shared service (DB access, pagination, response shaping)
 
-## Getting Started
-Go 1.17+ and a reachable PostgreSQL instance are required.
+## Requirements
+- Go 1.17+
+- PostgreSQL (Supabase connection strings work out of the box)
+- `DB_DSN` environment variable containing the connection URI, e.g. `postgres://user:pass@host:5432/db?sslmode=require`
 
-1. Configure the environment variable `DB_DSN` (for example `postgres://user:pass@localhost:5432/quizy?sslmode=disable`). You can keep it in a local `.env` file when using a dotenv loader.
-2. Download dependencies once with `go mod tidy`.
-3. Run the server with `go run main.go`. The API listens on `:8080`.
+## Local Development
+1. Copy your DSN into `.env` (`DB_DSN=postgres://...`).
+2. Start the server: `go run .` (or `go run ./cmd/server`). Server listens on `:8080` or `${PORT}`.
+3. Hit `http://localhost:8080/api/quiz?limit=10&page=1` to verify.
 
-### Example schema
+## Deploying to Vercel
+1. Move the project into a Vercel workspace.
+2. Set the `DB_DSN` environment variable in the Vercel dashboard (Project Settings -> Environment Variables).
+3. Deploy normally (`vercel --prod`). The function is available at `/api/quiz`.
+4. For local parity, `vercel dev` will execute `api/quiz.go` and respect your `.env` / Vercel env vars.
+
+## Database Schema Example
 ```sql
 CREATE TABLE questions (
   id SERIAL PRIMARY KEY,
@@ -52,6 +61,6 @@ Response example:
 }
 ```
 
-## Development
-- `go test ./...` to confirm the project builds.
-- Update this document whenever the API surface changes.
+## Development Tips
+- `go test ./...` ensures the module builds.
+- Update this doc when the API or deployment flow changes.
