@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 type QuizItem struct {
@@ -43,10 +43,10 @@ func mustGetEnv(key string) string {
 func main() {
 	_ = godotenv.Load()
 	// ENV:
-	//   DB_DSN="user:pass@tcp(127.0.0.1:3306)/yourdb?parseTime=true&charset=utf8mb4,utf8"
+	//   DB_DSN="postgres://user:pass@localhost:5432/yourdb?sslmode=disable"
 	dsn := mustGetEnv("DB_DSN")
 
-	db, err := sql.Open("mysql", dsn)
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func handleQuiz(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 		SELECT question, answer_a, answer_b, answer_c, correct
 		FROM questions
 		ORDER BY id ASC
-		LIMIT ? OFFSET ?`, limit, offset)
+		LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		http.Error(w, `{"error":"failed to query data"}`, http.StatusInternalServerError)
 		return

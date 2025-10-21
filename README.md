@@ -1,23 +1,23 @@
 # quizy
 
-Quizy is a small Go service that exposes quiz questions stored in MySQL via a JSON API. It uses the Go standard library and `github.com/go-sql-driver/mysql`.
+Quizy is a small Go service that exposes quiz questions stored in PostgreSQL via a JSON API. It uses the Go standard library and `github.com/lib/pq`.
 
 ## Features
 - JSON HTTP endpoint with pagination metadata
 - Configurable via the `DB_DSN` environment variable
-- Sensible MySQL connection pooling defaults
+- Sensible PostgreSQL connection pooling defaults
 
 ## Getting Started
-Go 1.17+ and a reachable MySQL instance are required.
+Go 1.17+ and a reachable PostgreSQL instance are required.
 
-1. Configure the environment variable `DB_DSN` (for example `user:pass@tcp(localhost:3306)/quizy?parseTime=true&charset=utf8mb4,utf8`). You can keep it in a local `.env` file when using a dotenv loader.
+1. Configure the environment variable `DB_DSN` (for example `postgres://user:pass@localhost:5432/quizy?sslmode=disable`). You can keep it in a local `.env` file when using a dotenv loader.
 2. Download dependencies once with `go mod tidy`.
 3. Run the server with `go run main.go`. The API listens on `:8080`.
 
 ### Example schema
 ```sql
 CREATE TABLE questions (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   question TEXT NOT NULL,
   answer_a VARCHAR(255),
   answer_b VARCHAR(255),
