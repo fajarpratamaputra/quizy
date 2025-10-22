@@ -37,6 +37,8 @@ func getService() (*quiz.Service, error) {
 
 // Handler is the Vercel entrypoint.
 func Handler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/json")
 	service, err := getService()
 	if err != nil {
 		http.Error(w, `{"error":"service initialization failed"}`, http.StatusInternalServerError)
